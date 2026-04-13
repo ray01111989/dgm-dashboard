@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Do Good Multnomah — Program Performance Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f4f2ed;
+    --surface: #ffffff;
+    --surface2: #f9f8f5;
+    --border: rgba(0,0,0,0.08);
+    --border-strong: rgba(0,0,0,0.15);
+    --text: #1a1a18;
+    --text-muted: #6b6b65;
+    --text-faint: #a0a09a;
+    --accent: #1e4d3b;
+    --accent-light: #e8f2ee;
+    --accent2: #c84b2f;
+    --accent2-light: #fdf0ed;
+    --blue: #1a3f6b;
+    --blue-light: #e8eef5;
+    --amber: #8a5a10;
+    --amber-light: #fdf4e3;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  /* ── Upload screen ── */
+  #upload-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 2rem;
+    text-align: center;
+  }
+
+  .upload-logo {
+    width: 56px;
+    height: 56px;
+    background: var(--accent);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 1.5rem;
+  }
+
+  .upload-logo svg { width: 28px; height: 28px; fill: white; }
+
+  .upload-title { font-size: 26px; font-weight: 600; margin-bottom: 0.5rem; color: var(--text); }
+  .upload-sub { font-size: 15px; color: var(--text-muted); max-width: 420px; margin: 0 auto 2.5rem; }
+
+  .drop-zone {
+    width: 100%;
+    max-width: 480px;
+    border: 2px dashed var(--border-strong);
+    border-radius: var(--radius);
+    padding: 3rem 2rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--surface);
+  }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--accent);
+    background: var(--accent-light);
+  }
+  .drop-zone svg { width: 40px; height: 40px; stroke: var(--text-faint); margin-bottom: 1rem; }
+  .drop-zone p { font-size: 15px; color: var(--text-muted); margin-bottom: 0.5rem; }
+  .drop-zone .hint { font-size: 13px; color: var(--text-faint); }
+  .drop-zone input { display: none; }
+
+  .btn-upload {
+    display: inline-block;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: 0.6rem 1.25rem;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    margin-top: 1rem;
+    transition: opacity 0.15s;
+  }
+  .btn-upload:hover { opacity: 0.85; }
+
+  #upload-error {
+    color: var(--accent2);
+    font-size: 13px;
+    margin-top: 1rem;
+    display: none;
+  }
+
+  /* ── Dashboard ── */
+  #dashboard { display: none; }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 60px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .header-brand { display: flex; align-items: center; gap: 10px; }
+  .header-logo {
+    width: 34px; height: 34px; background: var(--accent);
+    border-radius: 8px; display: flex; align-items: center; justify-content: center;
+  }
+  .header-logo svg { width: 18px; height: 18px; fill: white; }
+  .header-name { font-weight: 600; font-size: 15px; }
+  .header-period { font-size: 12px; color: var(--text-muted); font-family: 'DM Mono', monospace; }
+
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  .btn-reload {
+    display: flex; align-items: center; gap: 6px;
+    background: transparent; border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm); padding: 6px 12px;
+    font-size: 13px; font-family: inherit; cursor: pointer; color: var(--text-muted);
+    transition: all 0.15s;
+  }
+  .btn-reload:hover { background: var(--surface2); color: var(--text); }
+
+  main { padding: 1.5rem 2rem 3rem; max-width: 1400px; margin: 0 auto; }
+
+  /* ── Filter bar ── */
+  .filter-bar {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: flex-end;
+  }
+  .filter-group { display: flex; flex-direction: column; gap: 4px; min-width: 160px; flex: 1; }
+  .filter-label { font-size: 11px; font-weight: 500; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; }
+  .filter-select {
+    padding: 7px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+    font-family: inherit; font-size: 13px; background: var(--surface2); color: var(--text);
+    cursor: pointer; outline: none;
+  }
+  .filter-select:focus { border-color: var(--accent); }
+  .btn-reset {
+    padding: 7px 14px; background: transparent; border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm); font-family: inherit; font-size: 13px; cursor: pointer;
+    color: var(--text-muted); align-self: flex-end; transition: all 0.15s; white-space: nowrap;
+  }
+  .btn-reset:hover { background: var(--accent2-light); color: var(--accent2); border-color: var(--accent2); }
+
+  /* ── Metric grid ── */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 10px;
+    margin-bottom: 1.5rem;
+  }
+  .metric-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.1rem 1.25rem;
+    box-shadow: var(--shadow);
+  }
+  .metric-card.accent { background: var(--accent); border-color: var(--accent); }
+  .metric-card.accent .metric-label, .metric-card.accent .metric-sub { color: rgba(255,255,255,0.65); }
+  .metric-card.accent .metric-value { color: white; }
+  .metric-label { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); margin-bottom: 4px; }
+  .metric-value { font-size: 28px; font-weight: 600; line-height: 1.1; color: var(--text); }
+  .metric-sub { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+  .metric-tag {
+    display: inline-block; font-size: 10px; font-weight: 500; padding: 2px 6px;
+    border-radius: 4px; margin-top: 6px;
+  }
+  .tag-green { background: var(--accent-light); color: var(--accent); }
+  .tag-red { background: var(--accent2-light); color: var(--accent2); }
+  .tag-blue { background: var(--blue-light); color: var(--blue); }
+  .tag-amber { background: var(--amber-light); color: var(--amber); }
+
+  /* ── Section ── */
+  .section-label {
+    font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--text-faint); margin: 2rem 0 0.75rem;
+  }
+
+  /* ── Chart cards ── */
+  .charts-row { display: grid; gap: 12px; margin-bottom: 12px; }
+  .charts-row.col2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .charts-row.col3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  .charts-row.col12 { grid-template-columns: minmax(0,1.5fr) minmax(0,1fr); }
+
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    box-shadow: var(--shadow);
+  }
+  .chart-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 1rem; }
+  .chart-title { font-size: 13px; font-weight: 600; color: var(--text); }
+  .chart-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .chart-wrap { position: relative; }
+
+  /* ── Legend ── */
+  .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .leg { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-muted); }
+  .leg-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+
+  /* ── Vet split ── */
+  .vet-split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 0.75rem; }
+  .vet-box {
+    border-radius: var(--radius-sm); padding: 0.75rem;
+    border: 1px solid var(--border);
+  }
+  .vet-box.v { background: var(--blue-light); border-color: transparent; }
+  .vet-box.nv { background: var(--accent-light); border-color: transparent; }
+  .vet-box-label { font-size: 11px; color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+  .vet-box-val { font-size: 24px; font-weight: 600; margin-top: 2px; }
+  .vet-box.v .vet-box-val { color: var(--blue); }
+  .vet-box.nv .vet-box-val { color: var(--accent); }
+
+  /* ── Program table ── */
+  .prog-table-wrap { overflow-x: auto; }
+  table.prog-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .prog-table th {
+    font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--text-faint); padding: 0 10px 8px 0; text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .prog-table td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .prog-table tr:last-child td { border-bottom: none; }
+  .prog-table tr:hover td { background: var(--surface2); }
+  .type-pill {
+    display: inline-block; font-size: 10px; font-weight: 500; padding: 2px 7px;
+    border-radius: 100px; background: var(--surface2); color: var(--text-muted); border: 1px solid var(--border);
+  }
+  .bar-track { background: var(--bg); border-radius: 3px; height: 5px; min-width: 60px; }
+  .bar-fill { height: 5px; border-radius: 3px; background: var(--accent); }
+
+  /* ── NP Drop-in special card ── */
+  .dropin-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    box-shadow: var(--shadow);
+  }
+  .dropin-stats { display: flex; gap: 20px; margin: 1rem 0; flex-wrap: wrap; }
+  .dropin-stat { }
+  .dropin-stat-val { font-size: 28px; font-weight: 600; color: var(--text); }
+  .dropin-stat-lbl { font-size: 12px; color: var(--text-muted); }
+
+  /* ── No-data state ── */
+  .no-data { text-align: center; padding: 2rem; color: var(--text-faint); font-size: 13px; }
+
+  /* ── Footer ── */
+  footer {
+    text-align: center; padding: 1.5rem 2rem;
+    font-size: 12px; color: var(--text-faint);
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  @media (max-width: 768px) {
+    main { padding: 1rem 1rem 2rem; }
+    .charts-row.col2, .charts-row.col3, .charts-row.col12 { grid-template-columns: 1fr; }
+    .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+    header { padding: 0 1rem; }
+    .header-name { font-size: 13px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════ UPLOAD SCREEN ═══════════ -->
+<div id="upload-screen">
+  <div class="upload-logo">
+    <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22" style="fill:none;stroke:white;stroke-width:1.5;stroke-linecap:round"/></svg>
+  </div>
+  <h1 class="upload-title">Do Good Multnomah</h1>
+  <p class="upload-sub">Program Performance Dashboard. Upload your quarterly PPR Excel file to view metrics, demographics, and placement outcomes.</p>
+
+  <div class="drop-zone" id="dropZone">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+      <polyline points="17 8 12 3 7 8"/>
+      <line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <p>Drag & drop your PPR Excel file here</p>
+    <p class="hint">or click to browse · .xlsx files only</p>
+    <input type="file" id="fileInput" accept=".xlsx,.xls">
+    <button class="btn-upload" onclick="document.getElementById('fileInput').click()">Choose file</button>
+  </div>
+  <p id="upload-error">Could not read file. Make sure it's the PPR Excel export with a "Detail" sheet.</p>
+</div>
+
+<!-- ═══════════ DASHBOARD ═══════════ -->
+<div id="dashboard">
+  <header>
+    <div class="header-brand">
+      <div class="header-logo">
+        <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+      </div>
+      <div>
+        <div class="header-name">Do Good Multnomah — PPR Dashboard</div>
+        <div class="header-period" id="headerPeriod">Loading...</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="btn-reload" onclick="resetToUpload()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+        Load new file
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <!-- FILTERS -->
+    <div class="filter-bar" id="filterBar">
+      <div class="filter-group">
+        <label class="filter-label">Race / Ethnicity</label>
+        <select class="filter-select" id="fRace" onchange="applyFilters()">
+          <option value="">All</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label class="filter-label">Gender Identity</label>
+        <select class="filter-select" id="fGender" onchange="applyFilters()">
+          <option value="">All</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label class="filter-label">Veteran Status</label>
+        <select class="filter-select" id="fVet" onchange="applyFilters()">
+          <option value="">All</option>
+          <option value="Veterans">Veterans</option>
+          <option value="Non-Veterans">Non-Veterans</option>
+          <option value="Veteran status unreported">Unreported</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label class="filter-label">Program</label>
+        <select class="filter-select" id="fProgram" onchange="applyFilters()">
+          <option value="">All Programs</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label class="filter-label">Age Group</label>
+        <select class="filter-select" id="fAge" onchange="applyFilters()">
+          <option value="">All Ages</option>
+          <option value="1: Under 18">Under 18</option>
+          <option value="2: 18-24">18–24</option>
+          <option value="3: 25-54">25–54</option>
+          <option value="4: 55-69">55–69</option>
+          <option value="5: 70+">70+</option>
+        </select>
+      </div>
+      <button class="btn-reset" onclick="resetFilters()">Clear filters</button>
+    </div>
+
+    <!-- KPI CARDS -->
+    <div class="metrics-grid" id="metricsGrid"></div>
+
+    <!-- CHARTS ROW 1 -->
+    <div class="section-label">Client demographics</div>
+    <div class="charts-row col3" style="margin-bottom:12px;">
+      <div class="chart-card">
+        <div class="chart-head">
+          <div>
+            <div class="chart-title">Gender identity</div>
+            <div class="chart-subtitle">Unique clients · deduplicated</div>
+          </div>
+        </div>
+        <div class="chart-wrap" style="height:220px;"><canvas id="cGender" role="img" aria-label="Gender identity breakdown"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-head">
+          <div>
+            <div class="chart-title">Race & ethnicity</div>
+            <div class="chart-subtitle">Top 8 categories</div>
+          </div>
+        </div>
+        <div class="chart-wrap" style="height:220px;"><canvas id="cRace" role="img" aria-label="Race and ethnicity breakdown"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-head">
+          <div>
+            <div class="chart-title">Age group</div>
+            <div class="chart-subtitle">At program entry</div>
+          </div>
+        </div>
+        <div class="chart-wrap" style="height:220px;"><canvas id="cAge" role="img" aria-label="Age group breakdown"></canvas></div>
+      </div>
+    </div>
+
+    <!-- EXIT OUTCOMES -->
+    <div class="section-label">Placement outcomes</div>
+    <div class="charts-row col12" style="margin-bottom:12px;">
+      <div class="chart-card">
+        <div class="chart-head">
+          <div>
+            <div class="chart-title">Exit destination categories</div>
+            <div class="chart-subtitle">All exits · fiscal year</div>
+          </div>
+        </div>
+        <div class="legend" id="exitLegend"></div>
+        <div class="chart-wrap" style="height:200px;"><canvas id="cExit" role="img" aria-label="Exit destination categories"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-head">
+          <div>
+            <div class="chart-title">Placements by veteran status</div>
+            <div class="chart-subtitle">Positive & permanent exits</div>
+          </div>
+        </div>
+        <div id="vetPlacementSplit"></div>
+      </div>
+    </div>
+
+    <!-- POSITIVE / PERMANENT DETAIL -->
+    <div class="charts-row col2" style="margin-bottom:12px;">
+      <div class="chart-card">
+        <div class="chart-head">
+          <div>
+            <div class="chart-title">Positive exit destinations</div>
+            <div class="chart-subtitle">Stable but non-permanent placements</div>
+          </div>
+        </div>
+        <div class="chart-wrap" style="height:200px;"><canvas id="cPosExit" role="img" aria-label="Positive exit destination breakdown"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-head">
+          <div>
+            <div class="chart-title">Permanent housing placements</div>
+            <div class="chart-subtitle">Housing-secured exits</div>
+          </div>
+        </div>
+        <div class="chart-wrap" style="height:200px;"><canvas id="cPermExit" role="img" aria-label="Permanent housing exit breakdown"></canvas></div>
+      </div>
+    </div>
+
+    <!-- NP DROP-IN -->
+    <div class="section-label">North Portland Drop-in Center — referral spotlight</div>
+    <div class="dropin-card" id="dropinCard" style="margin-bottom:12px;"></div>
+
+    <!-- PROGRAMS -->
+    <div class="section-label">Clients served by program</div>
+    <div class="chart-card">
+      <div class="chart-head">
+        <div>
+          <div class="chart-title">All programs · unique clients served</div>
+          <div class="chart-subtitle">Fiscal year · sorted by volume</div>
+        </div>
+      </div>
+      <div class="prog-table-wrap">
+        <table class="prog-table">
+          <thead>
+            <tr>
+              <th>Program</th>
+              <th>Type</th>
+              <th style="text-align:right">Clients</th>
+              <th style="text-align:right">Share</th>
+              <th style="min-width:100px">Volume</th>
+            </tr>
+          </thead>
+          <tbody id="progTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <footer>Do Good Multnomah · PPR Dashboard · Data sourced from HMIS Detail export · Not for public distribution</footer>
+</div>
+
+<script>
+// ── Constants ──────────────────────────────────────────────────────────────
+const POSITIVE_EXITS = [
+  'Psychiatric hospital','Substance abuse treatment','Transitional housing for homeless',
+  'Residential project or halfway house','Hotel or motel paid for without',
+  'Staying or living with family, temporary','Staying or living with friends, temporary',
+  'Long-term care facility or nursing home','Foster care','Safe Haven','Host Home (non-crisis)'
+];
+const PERM_EXITS = [
+  'permanent tenure','Rental by client, no ongoing housing subsidy',
+  'Rental by client, with ongoing housing subsidy',
+  'Owned by client, with ongoing housing subsidy','Owned by client, no ongoing housing subsidy'
+];
+
+function isPositiveExit(dest) { return dest && POSITIVE_EXITS.some(k => dest.toLowerCase().includes(k.toLowerCase())); }
+function isPermExit(dest)     { return dest && PERM_EXITS.some(k => dest.toLowerCase().includes(k.toLowerCase())); }
+
+function shortProgName(name) {
+  return name.replace('Do Good Multnomah:', '').replace('Do Good Multnomah', '').replace(/\([A-Z]+\)\(\d+\)$/, '').replace(/\(\d+\)$/, '').trim();
+}
+function progType(name) {
+  const m = name.match(/\(([A-Z]+)\)\(\d+\)/);
+  return m ? m[1] : (name.match(/\(([A-Z]+)\)$/) ? name.match(/\(([A-Z]+)\)$/)[1] : 'N/A');
+}
+
+const PALETTE = {
+  accent: '#1e4d3b', accent2: '#c84b2f', blue: '#1a3f6b',
+  amber: '#8a5a10', purple: '#4a2f7a', teal: '#14706b',
+  chart: ['#1e4d3b','#c84b2f','#1a3f6b','#8a5a10','#4a2f7a','#14706b','#7a3b1e','#2f4a7a']
+};
+
+// ── Global state ───────────────────────────────────────────────────────────
+let rawRows = [];     // all Detail rows as objects
+let charts  = {};     // Chart.js instances keyed by id
+
+// ── Upload / drag-drop ─────────────────────────────────────────────────────
+const dz = document.getElementById('dropZone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('dragover'); handleFile(e.dataTransfer.files[0]); });
+document.getElementById('fileInput').addEventListener('change', e => handleFile(e.target.files[0]));
+
+function handleFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+      const ws = wb.Sheets['Detail'];
+      if (!ws) throw new Error('No Detail sheet');
+      const json = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      // Row 0 might be a note, row 1 is headers
+      const headerRow = json.findIndex(r => r.includes('Client Unique Id'));
+      const headers = json[headerRow];
+      rawRows = json.slice(headerRow + 1).filter(r => r.some(c => c != null)).map(r => {
+        const obj = {};
+        headers.forEach((h, i) => obj[h] = r[i] ?? null);
+        return obj;
+      });
+      populateFilterOptions();
+      showDashboard();
+    } catch(err) {
+      const el = document.getElementById('upload-error');
+      el.textContent = 'Could not read file: ' + err.message + '. Make sure it\'s the PPR Excel export with a "Detail" sheet.';
+      el.style.display = 'block';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ── Filter options ─────────────────────────────────────────────────────────
+function populateFilterOptions() {
+  const races = [...new Set(rawRows.map(r => r['Race and Ethnicity(11203)']).filter(Boolean))].sort();
+  const fRace = document.getElementById('fRace');
+  fRace.innerHTML = '<option value="">All races & ethnicities</option>' + races.map(v => `<option value="${v}">${v.length > 50 ? v.slice(0,50)+'…' : v}</option>`).join('');
+
+  const genders = [...new Set(rawRows.map(r => r['Gender(894)']).filter(Boolean))].sort();
+  const fGender = document.getElementById('fGender');
+  fGender.innerHTML = '<option value="">All genders</option>' + genders.map(v => `<option value="${v}">${v}</option>`).join('');
+
+  const progs = [...new Set(rawRows.map(r => r['HMIS Provider']).filter(Boolean))].sort();
+  const fProg = document.getElementById('fProgram');
+  fProg.innerHTML = '<option value="">All Programs</option>' + progs.map(v => `<option value="${v}">${shortProgName(v)}</option>`).join('');
+}
+
+// ── Filter + render ────────────────────────────────────────────────────────
+function getFilteredRows() {
+  const race    = document.getElementById('fRace').value;
+  const gender  = document.getElementById('fGender').value;
+  const vet     = document.getElementById('fVet').value;
+  const prog    = document.getElementById('fProgram').value;
+  const age     = document.getElementById('fAge').value;
+
+  return rawRows.filter(r => {
+    if (race   && r['Race and Ethnicity(11203)'] !== race) return false;
+    if (gender && r['Gender(894)']               !== gender) return false;
+    if (vet    && r['Veteran Status Crosswalk']  !== vet)   return false;
+    if (prog   && r['HMIS Provider']             !== prog)  return false;
+    if (age    && r['Age Breakout_Standard']     !== age)   return false;
+    return true;
+  });
+}
+
+function applyFilters() {
+  renderAll(getFilteredRows());
+}
+function resetFilters() {
+  ['fRace','fGender','fVet','fProgram','fAge'].forEach(id => document.getElementById(id).value = '');
+  applyFilters();
+}
+
+// ── Main render ────────────────────────────────────────────────────────────
+function renderAll(rows) {
+  const deduped = dedup(rows, 'Client Unique Id');
+  renderKPIs(rows, deduped);
+  renderGender(deduped);
+  renderRace(deduped);
+  renderAge(deduped);
+  renderExitCats(rows);
+  renderVetPlacements(rows);
+  renderPosExits(rows);
+  renderPermExits(rows);
+  renderDropin(rows);
+  renderProgTable(rows);
+}
+
+function dedup(rows, key) {
+  const seen = new Set();
+  return rows.filter(r => { if (seen.has(r[key])) return false; seen.add(r[key]); return true; });
+}
+
+// ── KPI cards ──────────────────────────────────────────────────────────────
+function renderKPIs(rows, deduped) {
+  const totalClients = new Set(rows.map(r => r['Client Unique Id'])).size;
+  const vets = deduped.filter(r => r['Veteran Status Crosswalk'] === 'Veterans').length;
+  const nonVets = deduped.filter(r => r['Veteran Status Crosswalk'] === 'Non-Veterans').length;
+  const posTotal = rows.filter(r => isPositiveExit(r['Exit Destination'])).length;
+  const permTotal = rows.filter(r => isPermExit(r['Exit Destination'])).length;
+  const npDropin = rows.filter(r => r['HMIS Provider'] && r['HMIS Provider'].includes('North Portland Drop-in'));
+  const npRefs = npDropin.filter(r => r['Exit Destination'] && (
+    r['Exit Destination'].toLowerCase().includes('shelter') ||
+    r['Exit Destination'].toLowerCase().includes('tenure') ||
+    r['Exit Destination'].toLowerCase().includes('housing subsidy')
+  )).length;
+  const hhs = new Set(rows.map(r => r['Household ID'])).size;
+
+  const cards = [
+    { label: 'Total unique clients', value: totalClients.toLocaleString(), sub: 'Deduplicated by Client Unique ID', tag: null, accent: true },
+    { label: 'Total households', value: hhs.toLocaleString(), sub: 'Unique household IDs', tag: null },
+    { label: 'Unique veterans', value: vets.toLocaleString(), sub: `${nonVets.toLocaleString()} non-veterans`, tag: { label:'Veterans', cls:'tag-blue' } },
+    { label: 'Positive placements', value: posTotal.toLocaleString(), sub: 'Stable exits, not perm. housing', tag: { label:'Positive exits', cls:'tag-amber' } },
+    { label: 'Permanent placements', value: permTotal.toLocaleString(), sub: 'Permanent housing secured', tag: { label:'Perm. housing', cls:'tag-green' } },
+    { label: 'NP Drop-in referrals', value: npRefs.toLocaleString(), sub: 'To shelter or housing', tag: { label:'Referrals', cls:'tag-blue' } },
+  ];
+
+  document.getElementById('metricsGrid').innerHTML = cards.map(c => `
+    <div class="metric-card${c.accent ? ' accent' : ''}">
+      <div class="metric-label">${c.label}</div>
+      <div class="metric-value">${c.value}</div>
+      <div class="metric-sub">${c.sub}</div>
+      ${c.tag ? `<span class="metric-tag ${c.tag.cls}">${c.tag.label}</span>` : ''}
+    </div>
+  `).join('');
+}
+
+// ── Chart helpers ──────────────────────────────────────────────────────────
+function mkChart(id, type, labels, data, opts = {}) {
+  if (charts[id]) { charts[id].destroy(); }
+  const ctx = document.getElementById(id);
+  if (!ctx) return;
+  charts[id] = new Chart(ctx, {
+    type,
+    data: {
+      labels,
+      datasets: [{ data, backgroundColor: opts.colors || PALETTE.chart, borderWidth: 0, borderRadius: opts.bar ? 3 : 0, ...opts.dataset }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ' ' + ctx.parsed.toLocaleString ? ' ' + (ctx.parsed.toLocaleString ? (typeof ctx.parsed === 'object' ? ctx.parsed.y.toLocaleString() : ctx.parsed.toLocaleString()) : ctx.parsed) : '' } } },
+      scales: type === 'doughnut' ? {} : {
+        x: { grid: { display: opts.bar ? true : false }, ticks: { color: '#a0a09a', font: { size: 11 } } },
+        y: { grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { color: '#a0a09a', font: { size: 11 } }, display: opts.hideY ? false : true }
+      },
+      ...opts.extra
+    }
+  });
+}
+
+// ── Gender chart ───────────────────────────────────────────────────────────
+function renderGender(deduped) {
+  const counts = {};
+  deduped.forEach(r => {
+    let g = r['Gender(894)'] || 'Not collected';
+    // simplify compound entries
+    if (g.includes(';')) g = 'Multiple / Non-conforming';
+    counts[g] = (counts[g] || 0) + 1;
+  });
+  const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]);
+  mkChart('cGender', 'doughnut', sorted.map(e=>e[0]), sorted.map(e=>e[1]), {
+    colors: ['#1e4d3b','#c84b2f','#1a3f6b','#8a5a10','#4a2f7a','#14706b','#7a3b1e','#2f4a7a','#aaa'],
+    extra: { cutout: '55%' }
+  });
+}
+
+// ── Race chart ─────────────────────────────────────────────────────────────
+function renderRace(deduped) {
+  // group multi-race
+  const counts = {};
+  deduped.forEach(r => {
+    let val = r['Race and Ethnicity(11203)'] || 'Not reported';
+    if (val === 'Client prefers not to answer' || val === "Client doesn't know" || val === 'Data not collected') val = 'Unreported / Declined';
+    if (val.includes(';')) val = 'Multi-racial / Multi-ethnic';
+    counts[val] = (counts[val] || 0) + 1;
+  });
+  const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const shortLabel = l => l.replace(', or African', '').replace(', Alaska Native, or Indigenous','').replace(' or Asian American','').replace(' or Pacific Islander','').replace(' or North African','');
+  mkChart('cRace', 'bar',
+    sorted.map(e => shortLabel(e[0])),
+    sorted.map(e => e[1]),
+    { bar: true, colors: sorted.map((_,i) => PALETTE.chart[i % PALETTE.chart.length]),
+      extra: { indexAxis: 'x', plugins: { legend: { display: false } },
+        scales: { x: { ticks: { color:'#a0a09a', font:{size:10}, maxRotation:40 }, grid:{display:false} }, y: { ticks:{color:'#a0a09a',font:{size:11}}, grid:{color:'rgba(0,0,0,0.04)'} } }
+      }
+    }
+  );
+}
+
+// ── Age chart ──────────────────────────────────────────────────────────────
+function renderAge(deduped) {
+  const order = ['1: Under 18','2: 18-24','3: 25-54','4: 55-69','5: 70+','6: Age Unreported'];
+  const labels = ['<18','18–24','25–54','55–69','70+','Unknown'];
+  const counts = {};
+  deduped.forEach(r => { const v = r['Age Breakout_Standard']||'6: Age Unreported'; counts[v] = (counts[v]||0)+1; });
+  mkChart('cAge', 'bar', labels, order.map(k => counts[k]||0), {
+    bar: true, colors: ['#1e4d3b','#1e4d3b','#c84b2f','#1a3f6b','#8a5a10','#ccc'],
+    extra: { scales: { x: { ticks:{color:'#a0a09a',font:{size:11}}, grid:{display:false} }, y: { ticks:{color:'#a0a09a',font:{size:11}}, grid:{color:'rgba(0,0,0,0.04)'} } } }
+  });
+}
+
+// ── Exit categories chart ──────────────────────────────────────────────────
+function renderExitCats(rows) {
+  const exits = rows.filter(r => r['Exit Destination Crosswalk']);
+  const counts = {};
+  exits.forEach(r => { const v = r['Exit Destination Crosswalk']; counts[v] = (counts[v]||0)+1; });
+  const order = ['1: Permanent Housing Situations','2: Temporary Housing Situations','3: Institutional Situations','4: Homeless Situations','5: Other'];
+  const colors = ['#1e4d3b','#1a3f6b','#8a5a10','#c84b2f','#aaa'];
+  const labels = ['Permanent housing','Temporary housing','Institutional','Homeless situations','Other / Unknown'];
+  const data = order.map(k => counts[k]||0);
+  mkChart('cExit','doughnut', labels, data, { colors, extra:{ cutout:'55%' } });
+  // Legend
+  document.getElementById('exitLegend').innerHTML = labels.map((l,i) => `
+    <span class="leg"><span class="leg-dot" style="background:${colors[i]}"></span>${l} (${(data[i]||0).toLocaleString()})</span>
+  `).join('');
+}
+
+// ── Vet placement split ────────────────────────────────────────────────────
+function renderVetPlacements(rows) {
+  const posVet   = rows.filter(r => isPositiveExit(r['Exit Destination']) && r['Veteran Status Crosswalk']==='Veterans').length;
+  const posNV    = rows.filter(r => isPositiveExit(r['Exit Destination']) && r['Veteran Status Crosswalk']==='Non-Veterans').length;
+  const permVet  = rows.filter(r => isPermExit(r['Exit Destination']) && r['Veteran Status Crosswalk']==='Veterans').length;
+  const permNV   = rows.filter(r => isPermExit(r['Exit Destination']) && r['Veteran Status Crosswalk']==='Non-Veterans').length;
+
+  document.getElementById('vetPlacementSplit').innerHTML = `
+    <div style="margin-bottom:12px;">
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:500;">Positive exits</div>
+      <div class="vet-split">
+        <div class="vet-box v"><div class="vet-box-label">Veterans</div><div class="vet-box-val">${posVet}</div></div>
+        <div class="vet-box nv"><div class="vet-box-label">Non-veterans</div><div class="vet-box-val">${posNV}</div></div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:500;">Permanent placements</div>
+      <div class="vet-split">
+        <div class="vet-box v"><div class="vet-box-label">Veterans</div><div class="vet-box-val">${permVet}</div></div>
+        <div class="vet-box nv"><div class="vet-box-label">Non-veterans</div><div class="vet-box-val">${permNV}</div></div>
+      </div>
+    </div>
+  `;
+}
+
+// ── Positive exit breakdown ────────────────────────────────────────────────
+function renderPosExits(rows) {
+  const pos = rows.filter(r => isPositiveExit(r['Exit Destination']));
+  const counts = {};
+  pos.forEach(r => { let v = r['Exit Destination']||'Unknown'; v = v.replace(' (HUD)','').replace(/\s*\(e\.g\..*?\)/,''); counts[v]=(counts[v]||0)+1; });
+  const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  const shorten = s => s.length > 36 ? s.slice(0,36)+'…' : s;
+  mkChart('cPosExit','bar', sorted.map(e=>shorten(e[0])), sorted.map(e=>e[1]), {
+    bar:true, colors: sorted.map((_,i)=>PALETTE.chart[i%PALETTE.chart.length]),
+    extra:{ indexAxis:'y', scales:{ x:{ticks:{color:'#a0a09a',font:{size:11}},grid:{color:'rgba(0,0,0,0.04)'}}, y:{ticks:{color:'#a0a09a',font:{size:10}},grid:{display:false}} } }
+  });
+}
+
+// ── Permanent exit breakdown ───────────────────────────────────────────────
+function renderPermExits(rows) {
+  const perm = rows.filter(r => isPermExit(r['Exit Destination']));
+  const counts = {};
+  perm.forEach(r => { let v = r['Exit Destination']||'Unknown'; v = v.replace(' (HUD)',''); counts[v]=(counts[v]||0)+1; });
+  const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  const shorten = s => s.length > 36 ? s.slice(0,36)+'…' : s;
+  mkChart('cPermExit','bar', sorted.map(e=>shorten(e[0])), sorted.map(e=>e[1]), {
+    bar:true, colors: ['#1e4d3b','#1e4d3b','#1e4d3b','#1e4d3b','#1e4d3b','#1e4d3b'],
+    extra:{ indexAxis:'y', scales:{ x:{ticks:{color:'#a0a09a',font:{size:11}},grid:{color:'rgba(0,0,0,0.04)'}}, y:{ticks:{color:'#a0a09a',font:{size:10}},grid:{display:false}} } }
+  });
+}
+
+// ── North Portland Drop-in ─────────────────────────────────────────────────
+function renderDropin(rows) {
+  const np = rows.filter(r => r['HMIS Provider'] && r['HMIS Provider'].includes('North Portland Drop-in'));
+  const unique = new Set(np.map(r=>r['Client Unique Id'])).size;
+  const toShelter = np.filter(r => r['Exit Destination'] && r['Exit Destination'].toLowerCase().includes('shelter')).length;
+  const toHousing = np.filter(r => r['Exit Destination'] && (
+    r['Exit Destination'].toLowerCase().includes('tenure') ||
+    r['Exit Destination'].toLowerCase().includes('housing subsidy') ||
+    r['Exit Destination'].toLowerCase().includes('owned by client')
+  )).length;
+  const exitCounts = {};
+  np.filter(r=>r['Exit Destination']).forEach(r => { exitCounts[r['Exit Destination']] = (exitCounts[r['Exit Destination']]||0)+1; });
+  const topExits = Object.entries(exitCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+  document.getElementById('dropinCard').innerHTML = `
+    <div class="chart-title">North Portland Drop-in Center</div>
+    <div class="chart-subtitle" style="margin-bottom:0;">Referral & exit summary · all exits logged while filter active</div>
+    <div class="dropin-stats">
+      <div class="dropin-stat"><div class="dropin-stat-val">${unique.toLocaleString()}</div><div class="dropin-stat-lbl">Unique clients</div></div>
+      <div class="dropin-stat"><div class="dropin-stat-val">${toShelter.toLocaleString()}</div><div class="dropin-stat-lbl">Referred to shelter</div></div>
+      <div class="dropin-stat"><div class="dropin-stat-val">${toHousing.toLocaleString()}</div><div class="dropin-stat-lbl">Referred to housing</div></div>
+      <div class="dropin-stat"><div class="dropin-stat-val">${(toShelter+toHousing).toLocaleString()}</div><div class="dropin-stat-lbl">Total shelter + housing referrals</div></div>
+    </div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;font-weight:500;">Top exit destinations</div>
+    ${topExits.map(([dest,cnt]) => `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+        <div style="flex:1;font-size:13px;">${dest.replace(' (HUD)','')}</div>
+        <div style="font-weight:600;font-size:13px;min-width:30px;text-align:right;">${cnt}</div>
+        <div class="bar-track" style="width:120px;"><div class="bar-fill" style="width:${Math.round(cnt/topExits[0][1]*100)}%"></div></div>
+      </div>
+    `).join('')}
+  `;
+}
+
+// ── Program table ──────────────────────────────────────────────────────────
+function renderProgTable(rows) {
+  const counts = {};
+  rows.forEach(r => {
+    if (!r['HMIS Provider']) return;
+    if (!counts[r['HMIS Provider']]) counts[r['HMIS Provider']] = new Set();
+    counts[r['HMIS Provider']].add(r['Client Unique Id']);
+  });
+  const sorted = Object.entries(counts).map(([k,v]) => ({name:k, total:v.size})).sort((a,b)=>b.total-a.total);
+  const maxTotal = sorted[0]?.total || 1;
+  const total = new Set(rows.map(r=>r['Client Unique Id'])).size;
+
+  document.getElementById('progTableBody').innerHTML = sorted.map(p => {
+    const pct = (p.total / total * 100).toFixed(1);
+    const barW = Math.round(p.total / maxTotal * 100);
+    return `<tr>
+      <td>${shortProgName(p.name)}</td>
+      <td><span class="type-pill">${progType(p.name)}</span></td>
+      <td style="text-align:right;font-weight:600;">${p.total.toLocaleString()}</td>
+      <td style="text-align:right;color:var(--text-muted);">${pct}%</td>
+      <td><div class="bar-track"><div class="bar-fill" style="width:${barW}%"></div></div></td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Show dashboard ─────────────────────────────────────────────────────────
+function showDashboard() {
+  document.getElementById('upload-screen').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+
+  // Set period from data
+  const dates = rawRows.map(r => r['Entry Date']).filter(d => d instanceof Date || (typeof d === 'number')).map(d => new Date(d)).filter(d => !isNaN(d));
+  if (dates.length) {
+    dates.sort((a,b)=>a-b);
+    const fmt = d => d.toLocaleDateString('en-US', {month:'short', year:'numeric'});
+    document.getElementById('headerPeriod').textContent = `${fmt(dates[0])} – ${fmt(dates[dates.length-1])}`;
+  }
+
+  renderAll(rawRows);
+}
+
+function resetToUpload() {
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('upload-screen').style.display = 'flex';
+  document.getElementById('upload-error').style.display = 'none';
+  document.getElementById('fileInput').value = '';
+  rawRows = [];
+  Object.values(charts).forEach(c => c.destroy());
+  charts = {};
+}
+</script>
+</body>
+</html>
