@@ -4,8 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Do Good Multnomah — PPR Dashboard</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<!-- Content-Security-Policy: this page reads the uploaded file locally and never needs the network, so
+     connect-src is "none". Even if a script were injected, it could not send client data anywhere. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js" integrity="sha384-dug+JxfBvklEQdJ4AYuBBAIScUz0bVN73xpy273gcAwHjb3qI0fXmuYNaNfdyYJG" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -432,7 +435,7 @@ table.ct-table{width:100%;border-collapse:collapse;font-size:12px}
 </div>
 
 <script>
-// ─── Constants ───────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────────────
 const POS_KEYS = ['Psychiatric hospital','Substance abuse treatment','Transitional housing for homeless','Residential project or halfway house','Hotel or motel paid for without','Staying or living with family, temporary','Staying or living with friends, temporary','Long-term care facility or nursing home','Foster care','Safe Haven','Host Home (non-crisis)'];
 const PERM_KEYS = ['permanent tenure','Rental by client, no ongoing housing subsidy','Rental by client, with ongoing housing subsidy','Owned by client, with ongoing housing subsidy','Owned by client, no ongoing housing subsidy'];
 const COLORS = ['#1b4d39','#c0422a','#1a3f6b','#7a5010','#4a2f7a','#14706b','#7a3b1e','#2f4a7a','#888','#c0842a'];
@@ -442,13 +445,28 @@ function isPerm(d){return d&&PERM_KEYS.some(k=>d.toLowerCase().includes(k.toLowe
 function shortName(n){return n.replace('Do Good Multnomah:','').replace('Do Good Multnomah','').replace(/\s*\([A-Z]+\)\(\d+\)/,'').replace(/\s*\(\d+\)/,'').trim();}
 function progType(n){const m=n.match(/\(([A-Z]+)\)\(\d+\)/);return m?m[1]:(n.match(/\(([A-Z]+)\)$/)?n.match(/\(([A-Z]+)\)$/)[1]:'N/A');}
 function fmt(n){return(n||0).toLocaleString();}
+// Escape text before it is inserted into the page as HTML. Every value that comes from the uploaded
+// spreadsheet (program names, labels, client fields) goes through this, so a cell containing
+// < > & " or ' is shown as plain text and can never become markup or break out of an attribute.
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function pct(n,t){return t?((n/t)*100).toFixed(1)+'%':'0%';}
 
-// ─── State ───────────────────────────────────────────────────────────────────
+// ─── How this file works ────────────────────────────────────────────────────────────────────────
+// 1. handleFile() reads the uploaded workbook's "Detail" sheet into RAW (one object per client row).
+// 2. populateAllFilters() builds the filter dropdowns from the values found in RAW.
+// 3. renderAll() draws every tab (Overview, Demographics, Placements, Shelter, Programs, Clients).
+// 4. Anything shown as HTML that came from the file must go through esc() (see above).
+// Known gap: these sections show numbers typed into the code (or HTML) from a past quarter, not numbers
+// computed from the upload, so they must be updated by hand each quarter (or replaced with calculations):
+//   - Overview: "1,837 total exits" and "529 total exits" subtitles
+//   - Demographics: the "Primary language spoken" list (langData)
+//   - Placements: the two "NP Drop-in" KPI cards and the whole "Permanent housing programs" card
+//   - Shelter tab: the four length-of-stay boxes, the exit totals, and the Coordinated Access card
+// ─── State ────────────────────────────────────────────────────────────────────────────
 let RAW=[], charts={};
 let clientPage=1, clientPageSize=50, clientSortCol=null, clientSortAsc=true;
 
-// ─── Upload ───────────────────────────────────────────────────────────────────
+// ─── Upload ─────────────────────────────────────────────────────────────────────────
 const dz=document.getElementById('dropZone');
 dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('over');});
 dz.addEventListener('dragleave',()=>dz.classList.remove('over'));
@@ -478,7 +496,7 @@ function handleFile(file){
   r.readAsArrayBuffer(file);
 }
 
-// ─── Multi-select state ───────────────────────────────────────────────────────
+// ─── Multi-select state ───────────────────────────────────────────────────────────────────────
 // MS_STATE[filterId] = Set of selected values. Empty set = "all selected"
 const MS_STATE = {};
 
@@ -556,7 +574,7 @@ function renderMsOpts(id, opts, filterText=''){
   el.innerHTML = filtered.map(([val,lbl])=>{
     const cid=`${id}-cb-${val.replace(/[^a-z0-9]/gi,'_')}`;
     const chk=sel.has(val)?'checked':'';
-    return`<div class="ms-option"><input type="checkbox" id="${cid}" value="${val}" ${chk} onchange="onMsChange('${id}',this)"><label for="${cid}" title="${lbl}">${lbl}</label></div>`;
+    return`<div class="ms-option"><input type="checkbox" id="${cid}" value="${esc(val)}" ${chk} onchange="onMsChange('${id}',this)"><label for="${cid}" title="${esc(lbl)}">${esc(lbl)}</label></div>`;
   }).join('');
 }
 
@@ -694,12 +712,12 @@ function resetFilters(){
   applyFilters();
 }
 
-// ─── Dedup ────────────────────────────────────────────────────────────────────
+// ─── Dedup ────────────────────────────────────────────────────────────────────────
 function dedup(rows,key='Client Unique Id'){
   const s=new Set();return rows.filter(r=>{if(s.has(r[key]))return false;s.add(r[key]);return true;});
 }
 
-// ─── Charts helper ────────────────────────────────────────────────────────────
+// ─── Charts helper ────────────────────────────────────────────────────────────────────────
 function mkChart(id,type,labels,datasets,opts={}){
   if(charts[id])charts[id].destroy();
   const ctx=document.getElementById(id);
@@ -724,10 +742,10 @@ function barDS(data,colors){return[{data,backgroundColor:colors,borderRadius:3,b
 function buildLegend(id,labels,colors,values){
   const el=document.getElementById(id);
   if(!el)return;
-  el.innerHTML=labels.map((l,i)=>`<span class="li"><span class="ld" style="background:${colors[i%colors.length]}"></span>${l}${values?(' ('+fmt(values[i])+')'):''}</span>`).join('');
+  el.innerHTML=labels.map((l,i)=>`<span class="li"><span class="ld" style="background:${colors[i%colors.length]}"></span>${esc(l)}${values?(' ('+fmt(values[i])+')'):''}</span>`).join('');
 }
 
-// ─── Render all ───────────────────────────────────────────────────────────────
+// ─── Render all ──────────────────────────────────────────────────────────────────────────
 function renderAll(rows){
   const dd=dedup(rows);
   renderOverview(rows,dd);
@@ -737,7 +755,7 @@ function renderAll(rows){
   renderClientTable();
 }
 
-// ─── OVERVIEW ─────────────────────────────────────────────────────────────────
+// ─── OVERVIEW ─────────────────────────────────────────────────────────────────────────
 function renderOverview(rows,dd){
   const total=new Set(rows.map(r=>r['Client Unique Id'])).size;
   const hh=new Set(rows.map(r=>r['Household ID'])).size;
@@ -793,7 +811,7 @@ function renderOverview(rows,dd){
   buildLegend('lExitQ',exitLbls,exitColors,exitValsQ);
 }
 
-// ─── DEMOGRAPHICS ─────────────────────────────────────────────────────────────
+// ─── DEMOGRAPHICS ────────────────────────────────────────────────────────────────────────
 function renderDemographics(rows,dd){
   // Race bar
   const raceMap={};
@@ -812,11 +830,11 @@ function renderDemographics(rows,dd){
   mkChart('cBipoc','doughnut',bipocLbls,doughnutDS(bipocVals,bipocColors),{extra:{cutout:'55%'}});
   buildLegend('lBipoc',bipocLbls,bipocColors,bipocVals);
 
-  // Language list (from the All Programs summary data)
+  // Language list: NOTE these counts are typed in by hand (from the All Programs summary), not read from the upload
   const langData=[{l:'English',n:1538},{l:'Spanish',n:18},{l:'Chuukese',n:4},{l:'Other',n:6},{l:'Russian',n:2},{l:'Sign Language (ASL)',n:1},{l:'Vietnamese',n:1},{l:'Arabic',n:1},{l:'Amharic',n:1},{l:'Not reported',n:587}];
   const ll=document.getElementById('langList');
   const maxL=langData[0].n;
-  if(ll)ll.innerHTML=langData.map(d=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px"><div style="width:80px;font-size:11px">${d.l}</div><div class="bt" style="flex:1"><div class="bf" style="width:${Math.round(d.n/maxL*100)}%"></div></div><div style="font-size:11px;min-width:30px;text-align:right;color:var(--muted)">${d.n}</div></div>`).join('');
+  if(ll)ll.innerHTML=langData.map(d=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px"><div style="width:80px;font-size:11px">${esc(d.l)}</div><div class="bt" style="flex:1"><div class="bf" style="width:${Math.round(d.n/maxL*100)}%"></div></div><div style="font-size:11px;min-width:30px;text-align:right;color:var(--muted)">${d.n}</div></div>`).join('');
 
   // Gender bar
   const gMap={};
@@ -848,7 +866,7 @@ function renderDemographics(rows,dd){
   if(ase)ase.innerHTML=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div class="los-box"><div class="los-val">${avgAge}</div><div class="los-lbl">Average age</div></div><div class="los-box"><div class="los-val">${medAge}</div><div class="los-lbl">Median age</div></div></div>`;
 }
 
-// ─── PLACEMENTS ────────────────────────────────────────────────────────────────
+// ─── PLACEMENTS ─────────────────────────────────────────────────────────────────────────
 function renderPlacements(rows){
   const total=new Set(rows.map(r=>r['Client Unique Id'])).size;
   const posAll=rows.filter(r=>isPos(r['Exit Destination']));
@@ -863,6 +881,7 @@ function renderPlacements(rows){
     {l:'Permanent placements',v:fmt(permAll.length),s:'Housing-secured exits',t:'tg',dark:true},
     {l:'Vet positive exits',v:fmt(posVet),s:'of '+fmt(posAll.length)+' total positive',t:'tb'},
     {l:'Vet permanent exits',v:fmt(permVet),s:'of '+fmt(permAll.length)+' total permanent',t:'tb'},
+    // NOTE: the two NP Drop-in values below (46 and 4) are typed in by hand, not computed from the upload
     {l:'NP Drop-in → shelter',v:'46',s:'Emergency shelter referrals',t:''},
     {l:'NP Drop-in → housing',v:'4',s:'Permanent + subsidy referrals',t:'tg'},
   ].map(c=>`<div class="mc${c.dark?' dark':''}"><div class="ml">${c.l}</div><div class="mv">${c.v}</div><div class="ms">${c.s}</div>${c.t?`<span class="mt ${c.t}">${c.t}</span>`:''}</div>`).join('');
@@ -900,10 +919,11 @@ function renderPlacements(rows){
       <div class="los-box"><div class="los-val">${npShelter+npHousing}</div><div class="los-lbl">Total referrals</div></div>
     </div>
     <div style="font-size:11px;font-weight:500;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Top exit destinations</div>
-    ${npTop.map(([d,n])=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px"><div style="flex:1;font-size:12px">${d.replace(' (HUD)','')}</div><b style="font-size:12px;min-width:24px;text-align:right">${n}</b><div class="bt" style="width:100px"><div class="bf" style="width:${Math.round(n/npTop[0][1]*100)}%"></div></div></div>`).join('')}`;
+    ${npTop.map(([d,n])=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px"><div style="flex:1;font-size:12px">${esc(d.replace(' (HUD)',''))}</div><b style="font-size:12px;min-width:24px;text-align:right">${n}</b><div class="bt" style="width:100px"><div class="bf" style="width:${Math.round(n/npTop[0][1]*100)}%"></div></div></div>`).join('')}`;
 
   // Perm housing card (from Permanent Housing Only sheet data)
   const phEl=document.getElementById('permHousingCard');
+  // NOTE: the numbers in this card are typed in by hand (not read from the upload); update them each quarter
   if(phEl)phEl.innerHTML=`<div class="ct">Permanent housing programs — housing search status</div><div class="csub">Fiscal year · from Permanent Housing Only sheet</div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:1rem 0">
       <div class="los-box"><div class="los-val">2</div><div class="los-lbl">Placed in housing (FY)</div></div>
@@ -923,7 +943,7 @@ function renderPlacements(rows){
     ].map(p=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px"><div style="flex:1;font-size:12px">${p.n}</div><span style="font-size:12px;min-width:28px;text-align:right;font-weight:600">${p.cnt}</span><span style="font-size:11px;color:var(--muted);min-width:36px;text-align:right">${p.pct}</span><div class="bt" style="width:90px"><div class="bf" style="width:${Math.round(p.cnt/119*100)}%"></div></div></div>`).join('')}`;
 }
 
-// ─── SHELTER LOS ──────────────────────────────────────────────────────────────
+// ─── SHELTER LOS ──────────────────────────────────────────────────────────────────────────
 function renderShelterTab(){
   const shelterRows=RAW.filter(r=>{
     const p=r['HMIS Provider']||'';
@@ -956,10 +976,10 @@ function renderShelterTab(){
   });
   const progAvg=Object.entries(byProg).map(([n,vals])=>({n,avg:Math.round(vals.reduce((a,b)=>a+b,0)/vals.length)})).sort((a,b)=>b.avg-a.avg).slice(0,10);
   const lpEl=document.getElementById('shelterLOSByProg');
-  if(lpEl){const maxA=progAvg[0]?.avg||1;lpEl.innerHTML=progAvg.map(p=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div style="width:130px;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.n}</div><div class="bt" style="flex:1"><div class="bf" style="width:${Math.round(p.avg/maxA*100)}%"></div></div><div style="font-size:12px;font-weight:600;min-width:40px;text-align:right">${p.avg}d</div></div>`).join('');}
+  if(lpEl){const maxA=progAvg[0]?.avg||1;lpEl.innerHTML=progAvg.map(p=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div style="width:130px;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.n)}</div><div class="bt" style="flex:1"><div class="bf" style="width:${Math.round(p.avg/maxA*100)}%"></div></div><div style="font-size:12px;font-weight:600;min-width:40px;text-align:right">${p.avg}d</div></div>`).join('');}
 }
 
-// ─── PROGRAMS TABLE ───────────────────────────────────────────────────────────
+// ─── PROGRAMS TABLE ───────────────────────────────────────────────────────────────────────────
 function renderPrograms(rows){
   const progData={};
   rows.forEach(r=>{
@@ -979,7 +999,7 @@ function renderPrograms(rows){
     const pt=progType(p.name);
     const tc=typeClasses[pt]||'';
     return`<tr>
-      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${shortName(p.name)}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(shortName(p.name))}</td>
       <td><span class="pill ${tc}">${pt}</span></td>
       <td style="text-align:right;font-weight:600">${fmt(p.total)}</td>
       <td style="text-align:right">${fmt(p.newFY)}</td>
@@ -990,7 +1010,7 @@ function renderPrograms(rows){
     </tr>`;}).join('');
 }
 
-// ─── CLIENT DETAIL TABLE ──────────────────────────────────────────────────────
+// ─── CLIENT DETAIL TABLE ────────────────────────────────────────────────────────────────────────
 const CLIENT_COLS=['Client Unique Id','HMIS Provider','Entry Date','Exit Date','Length of Stay (Leavers in FY)','Gender(894)','Race and Ethnicity(11203)','Age at Entry','Veteran Status Crosswalk','Exit Destination','Does the client have a disabling condition?(1212)','Relationship to Head of Household'];
 const CLIENT_HDRS=['Client ID','Program','Entry Date','Exit Date','LOS (days)','Gender','Race / Ethnicity','Age','Veteran Status','Exit Destination','Disability','HoH Relationship'];
 
@@ -1044,7 +1064,7 @@ function renderClientPage(){
   if(thead)thead.innerHTML=CLIENT_HDRS.map((h,i)=>`<th onclick="sortClients(${i})" title="Sort by ${h}">${h}<span>${clientSortCol===i?(clientSortAsc?'↑':'↓'):'↕'}</span></th>`).join('');
 
   const tbody=document.getElementById('clientTbody');
-  if(tbody)tbody.innerHTML=pageRows.map(r=>`<tr>${CLIENT_COLS.map(col=>`<td title="${String(r[col]||'')}">${formatCell(col,r[col])}</td>`).join('')}</tr>`).join('');
+  if(tbody)tbody.innerHTML=pageRows.map(r=>`<tr>${CLIENT_COLS.map(col=>`<td title="${esc(r[col]||'')}">${esc(formatCell(col,r[col]))}</td>`).join('')}</tr>`).join('');
 
   document.getElementById('printMeta').textContent=`Generated: ${new Date().toLocaleDateString()} · ${fmt(total)} records · Filters: ${buildFilterSummary()}`;
 }
@@ -1094,7 +1114,7 @@ function printClients(){
   document.getElementById('printMeta').textContent=`Generated: ${new Date().toLocaleDateString()} · ${fmt(clientRows.length)} records · ${buildFilterSummary()}`;
   // Show all rows for print
   const tbody=document.getElementById('clientTbody');
-  if(tbody)tbody.innerHTML=clientRows.map(r=>`<tr>${CLIENT_COLS.map(col=>`<td>${formatCell(col,r[col])}</td>`).join('')}</tr>`).join('');
+  if(tbody)tbody.innerHTML=clientRows.map(r=>`<tr>${CLIENT_COLS.map(col=>`<td>${esc(formatCell(col,r[col]))}</td>`).join('')}</tr>`).join('');
   window.print();
   // Restore page
   setTimeout(renderClientPage,500);
@@ -1126,7 +1146,8 @@ function exportExcel(){
   ws['!freeze']={xSplit:0,ySplit:1,topLeftCell:'A2',activePane:'bottomLeft',state:'frozen'};
 
   const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,'Client Detail',ws);
+  // SheetJS argument order is (workbook, worksheet, sheetName); it was reversed, which made the export throw
+  XLSX.utils.book_append_sheet(wb,ws,'Client Detail');
 
   // Add a summary sheet
   const summaryData=[
@@ -1146,12 +1167,12 @@ function exportExcel(){
   ];
   const wsSummary=XLSX.utils.aoa_to_sheet(summaryData);
   wsSummary['!cols']=[{wch:28},{wch:40}];
-  XLSX.utils.book_append_sheet(wb,'Summary',wsSummary);
+  XLSX.utils.book_append_sheet(wb,wsSummary,'Summary');
 
   XLSX.writeFile(wb,'dgm-clients-'+new Date().toISOString().slice(0,10)+'.xlsx');
 }
 
-// ─── Tab switching ────────────────────────────────────────────────────────────
+// ─── Tab switching ─────────────────────────────────────────────────────────────────────────
 function switchTab(name){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
@@ -1161,7 +1182,7 @@ function switchTab(name){
   if(name==='clients'){renderClientTable();}
 }
 
-// ─── Show dashboard ───────────────────────────────────────────────────────────
+// ─── Show dashboard ─────────────────────────────────────────────────────────────────────────
 function showDashboard(){
   document.getElementById('upload-screen').style.display='none';
   document.getElementById('dashboard').style.display='block';
